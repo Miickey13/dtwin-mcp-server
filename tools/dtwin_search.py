@@ -1,28 +1,28 @@
 from typing import Any, Optional, TypedDict, Literal, List, Dict
 
 SEARCH_PARAMETER_ENUM: Dict[str, int] = {
-    "EntityType": 1,
-    "PropertySet": 2,
-    "Property": 3,
-    "ClassificationParameterSet": 4,
-    "ClassificationParameter": 5,
-    "Storey": 6,
-    "Distance": 7,
+    "entityType": 1,
+    "propertySet": 2,
+    "property": 3,
+    "classificationParameterSet": 4,
+    "classificationParameter": 5,
+    "storey": 6,
+    "distance": 7,
 }
 SEARCH_OPERATOR_ENUM: Dict[str, int] = {
-    "Equal": 1,
-    "NotEqual": 2,
+    "equal": 1,
+    "notEqual": 2,
 }
 
 class ParameterIn(TypedDict, total=False):
     parameter: Literal[
-        "EntityType",
-        "PropertySet",
-        "Property",
-        "ClassificationParameterSet",
-        "ClassificationParameter",
-        "Storey",
-        "Distance",
+        "entityType",
+        "propertySet",
+        "property",
+        "classificationParameterSet",
+        "classificationParameter",
+        "storey",
+        "distance",
     ]
     operator: Literal["Equal", "NotEqual"]
     key: Optional[str]
@@ -35,42 +35,45 @@ class DtwinSearchArgs(TypedDict, total=False):
 def _lower_or_none(v: Optional[str]) -> Optional[str]:
     return v.lower() if isinstance(v, str) else None
 
-def dtwin_search(args: DtwinSearchArgs) -> Dict[str, Any]:
+def dtwin_search(
+    searchTerm: Optional[str] = None,
+    parameters: List[ParameterIn] = [],
+) -> Dict[str, Any]:
     """
     Build the search payload for dTwin.
 
 BACKEND REALITY (match this exactly)
-- searchTerm → used as a lowercase text query over: Entity.Name, (Name + LongName), Type, IfcID, Storey.Name, Model.Name, and IfcClass. It also gates a property text search if the caller sets searchProperties=true (outside this tool).
+- searchTerm → used as a lowercase text query over: entity.name, (name + longname), type, ifcid, storey.name, model.name, and ifcclass. It also gates a property text search if the caller sets searchProperties=true (outside this tool).
 - Parameters are evaluated with exact equality (case-insensitive) per enum:
-  EntityType(1), PropertySet(2), Property(3), ClassificationParameterSet(4),
-  ClassificationParameter(5), Storey(6), Distance(7).
+  entityType(1), propertySet(2), property(3), classificationParameterSet(4),
+  classificationParameter(5), storey(6), distance(7).
 
 WHAT TO PARAMETERIZE (and what NOT to)
 
-1) Only use EntityType when the user explicitly mentions type. otherwise use searchTerm.
+1) Only use entityType when the user explicitly mentions type. otherwise use searchTerm.
 
-2) Distance → parameters[0] = Distance
-   - Phrases “within …”, “radius …”, “near …”, “distance …” + number ⇒ a single Distance parameter:
+2) distance → parameters[0] = distance
+   - Phrases “within …”, “radius …”, “near …”, “distance …” + number ⇒ a single distance parameter:
        {"Parameter": 7, "Operator": 1, "Key": "<anchor id or ''>", "Value": "<number as string>"}
    - Ignore units; keep Value as a plain number string (e.g., "7", "7.5"). Key is optional; use "" unless a specific anchor element ID is given.
 
-3) Property → only when you have BOTH key and value
+3) property → only when you have BOTH key and value
    - Backend checks `p.Name == key` AND `p.Value == value` on non-classification sets.
-   - If the prompt doesn’t provide a concrete value, DO NOT create a Property parameter. Use searchTerm only.
+   - If the prompt doesn’t provide a concrete value, DO NOT create a property parameter. Use searchTerm only.
 
-4) PropertySet (non-classification sets)
+4) propertySet (non-classification sets)
    - Use only when the prompt gives an exact set name that is NOT a classification set.
    - This maps to `ps.Name == key` AND `ps.PropertySetTypeID != Classification`.
 
-5) ClassificationParameterSet vs ClassificationParameter
-   - ClassificationParameterSet: set name (e.g., “Uniclass”). Maps to `ps.Name == key`.
-   - ClassificationParameter: key/value inside a classification set  → `p.Name == key` AND `p.Value == value` .
+5) classificationParameterSet vs classificationParameter
+   - classificationParameterSet: set name (e.g., “Uniclass”). Maps to `ps.Name == key`.
+   - classificationParameter: key/value inside a classification set  → `p.Name == key` AND `p.Value == value`.
 
-6) Storey
-   - Ideal case: the prompt provides an explicit StoreyID (GUID string). Then:
-       {"Parameter": 6, "Operator": 1, "Key": "", "Value": "<guid>"}
+6) storey
+   - Ideal case: the prompt provides an explicit storeyID (GUID string). Then:
+       {"parameter": 6, "operator": 1, "key": "", "value": "<guid>"}
    - If the prompt references a storey/level but **no GUID is available**, still emit a placeholder:
-       {"Parameter": 6, "Operator": 1, "Key": "", "Value": "placeholder"}
+       {"parameter": 6, "operator": 1, "key": "", "value": "placeholder"}
      (Downstream logic will resolve/replace the placeholder. Do not guess GUIDs.)
 
 7) searchTerm rules
@@ -85,8 +88,8 @@ INPUT (to this tool): a single object
 {
   "searchTerm": "<optional>",
   "parameters": [
-    { "parameter": "EntityType|PropertySet|Property|ClassificationParameterSet|ClassificationParameter|Storey|Distance",
-      "operator": "Equal|NotEqual",
+    { "parameter": "entityType|propertySet|property|classificationParameterSet|classificationParameter|storey|distance",
+      "operator": "equal|notEqual",
       "key": "<string or ''>",
       "value": "<string or ''>" }
   ]
@@ -99,7 +102,7 @@ OUTPUT (from this tool):
     "arguments": {
       "searchTerm": "<singular, lowercase or ''>",
       "parameters": [
-        { "Parameter": <int>, "Operator": <int>, "Key": "<string|null|''>", "Value": "<string|null|''>" }
+        { "parameter": <int>, "operator": <int>, "key": "<string|null|''>", "value": "<string|null|''>" }
       ]  // 0 or 1 item only
     }
   }
@@ -114,7 +117,7 @@ A) "Find all elements of type wall within radius 7 meters"
        "arguments": {
          "searchTerm": "wall",
          "parameters": [
-           {"Parameter": 7, "Operator": 1, "Key": "", "Value": "7"}
+           {"parameter": 7, "operator": 1, "key": "", "value": "7"}
          ]
        }
      }
@@ -127,7 +130,7 @@ B) "IfcWall only"
        "arguments": {
          "searchTerm": "",
          "parameters": [
-           {"Parameter": 1, "Operator": 1, "Key": "", "Value": "ifcwall"}
+           {"parameter": 1, "operator": 1, "key": "", "value": "ifcwall"}
          ]
        }
      }
@@ -140,7 +143,7 @@ C) "Walls with property color red"
        "arguments": {
          "searchTerm": "wall",
          "parameters": [
-           {"Parameter": 3, "Operator": 1, "Key": "color", "Value": "red"}
+           {"parameter": 3, "operator": 1, "key": "color", "value": "red"}
          ]
        }
      }
@@ -153,7 +156,7 @@ D) "Find items that have classifications 'name' with value 'value'"
        "arguments": {
          "searchTerm": "",
          "parameters": [
-           {"Parameter": 5, "Operator": 1, "Key": "name", "Value": "value"}
+           {"parameter": 5, "operator": 1, "key": "name", "value": "value"}
          ]
        }
      }
@@ -166,12 +169,15 @@ E) "On level 2"
        "arguments": {
          "searchTerm": "",
          "parameters": [
-           {"Parameter": 6, "Operator": 1, "Key": "", "Value": "placeholder"}
+           {"parameter": 6, "operator": 1, "key": "", "value": "placeholder"}
          ]
        }
      }
    }
     """
+
+    args = {"searchTerm": searchTerm, "parameters": parameters or []}
+
     if not isinstance(args, dict):
         raise ValueError("Tool expects a single object argument.")
 
@@ -192,10 +198,10 @@ E) "On level 2"
             raise ValueError(f"Unknown operator enum: {oname}")
 
         out_params.append({
-            "Parameter": SEARCH_PARAMETER_ENUM[pname],
-            "Operator": SEARCH_OPERATOR_ENUM[oname],
-            "Key": _lower_or_none(p.get("key")),
-            "Value": _lower_or_none(p.get("value")),
+            "parameter": SEARCH_PARAMETER_ENUM[pname],
+            "operator": SEARCH_OPERATOR_ENUM[oname],
+            "key": _lower_or_none(p.get("key")),
+            "value": _lower_or_none(p.get("value")),
         })
 
     search_term = args.get("searchTerm") or ""
